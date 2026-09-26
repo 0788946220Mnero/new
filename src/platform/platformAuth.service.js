@@ -30,8 +30,10 @@ export class PlatformAuthService {
   #encryptor;
   #audit;
   #now;
+  #mfaRequired;
 
-  constructor({ models, tokens, encryptor, audit, now = () => Date.now() }) {
+  constructor({ models, tokens, encryptor, audit, mfaRequired = true, now = () => Date.now() }) {
+    this.#mfaRequired = mfaRequired;
     this.#PlatformUser = models.PlatformUser;
     this.#tokens = tokens;
     this.#encryptor = encryptor;
@@ -58,8 +60,18 @@ export class PlatformAuthService {
       throw invalidCredentials();
     }
 
+    // An account that enrolled MFA always keeps it, even when MFA is not required.
     if (user.mfa?.enabled) {
       return { step: 'mfa', challengeToken: this.#tokens.signChallenge(user, AUDIENCES.PLATFORM_MFA) };
+    }
+
+    if (!this.#mfaRequired) {
+      await this.#PlatformUser.updateOne(
+        { _id: user._id },
+        { $set: { failedLoginCount: 0, lastLoginAt: new Date(this.#now()) }, $unset: { lockUntil: 1, 'mfa.pendingSecretEncrypted': 1 } },
+      );
+      await this.#audit.log({ actor: this.#actor(user), action: 'platform.login', ip, metadata: { mfa: false } });
+      return { step: 'done', ...this.#session(user) };
     }
 
     // First login (or MFA was reset): issue a new pending secret to enroll.
@@ -138,7 +150,8 @@ export class PlatformAuthService {
     if (!payload) throw new AppError(401, 'Unauthorized', { code: 'UNAUTHORIZED' });
 
     const user = await this.#PlatformUser.findById(payload.sub).lean();
-    if (!user || user.status !== 'active' || (user.tokenVersion ?? 0) !== payload.ver || !user.mfa?.enabled) {
+    const mfaMissing = this.#mfaRequired && !user?.mfa?.enabled;
+    if (!user || user.status !== 'active' || (user.tokenVersion ?? 0) !== payload.ver || mfaMissing) {
       throw new AppError(401, 'Unauthorized', { code: 'UNAUTHORIZED' });
     }
     return {

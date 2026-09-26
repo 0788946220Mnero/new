@@ -43,6 +43,9 @@ PLATFORM_JWT_SECRET=...
 MFA_ENCRYPTION_KEY=...       # node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
 SUPER_ADMIN_EMAIL=ninja@mero.com
+# SELF_SIGNUP_ENABLED=true     # التسجيل الذاتي للمطاعم (false لإغلاقه)
+# TRIAL_DAYS=7                 # مدة التجربة قبل التفعيل الدائم
+# PLATFORM_MFA_REQUIRED=false  # اختياري: دخول السوبر أدمن بدون تحقق بخطوتين (غير مستحسن)
 SUPER_ADMIN_PASSWORD=...     # مؤقتة، تُحذف بعد الخطوة 5
 
 CLOUDINARY_CLOUD_NAME=...

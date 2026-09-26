@@ -46,6 +46,13 @@ const schema = z.object({
     .string()
     .refine((v) => Buffer.from(v, 'base64').length === 32, 'must be 32 random bytes encoded as base64'),
 
+  // Restaurants can register themselves and get a free trial until the Super Admin approves them.
+  SELF_SIGNUP_ENABLED: z.enum(['true', 'false']).default('true'),
+  TRIAL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
+
+  // "false" lets the Super Admin sign in with email + password only (not recommended).
+  PLATFORM_MFA_REQUIRED: z.enum(['true', 'false']).default('true'),
+
   SUPER_ADMIN_EMAIL: z
     .string()
     .email()
@@ -138,5 +145,8 @@ export function loadEnv(source = process.env) {
     throw new EnvError(['COOKIE_SECURE: must not be false in production']);
   }
 
-  return Object.freeze({ ...env, cookieSecure, mediaStorage, MONGODB_CLUSTERS: Object.freeze(clusters) });
+  const platformMfaRequired = env.PLATFORM_MFA_REQUIRED !== 'false';
+  const selfSignupEnabled = env.SELF_SIGNUP_ENABLED !== 'false';
+
+  return Object.freeze({ ...env, cookieSecure, mediaStorage, platformMfaRequired, selfSignupEnabled, MONGODB_CLUSTERS: Object.freeze(clusters) });
 }

@@ -52,7 +52,7 @@ describe('Restaurant authentication, sessions and RBAC', { skip: process.env.SKI
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.data.user.role, 'Owner');
     assert.ok(res.body.data.user.permissions.includes('users.manage'));
-    assert.deepEqual(res.body.data.restaurant, { restaurantId: A.restaurantId, name: 'Rest rest-a', slug: 'rest-a' });
+    assert.deepEqual(res.body.data.restaurant, { restaurantId: A.restaurantId, name: 'Rest rest-a', slug: 'rest-a', trialEndsAt: null });
 
     const cookie = [].concat(res.headers['set-cookie']).find((c) => c.startsWith('fm_rt='));
     assert.match(cookie, /HttpOnly/i);

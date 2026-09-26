@@ -30,9 +30,10 @@ export class RestaurantAdminService {
     this.#now = now;
   }
 
-  async list({ q, status, page = 1, limit = 25 }) {
+  async list({ q, status, approval, page = 1, limit = 25 }) {
     const filter = {};
     if (status) filter.status = status;
+    if (approval === 'pending') filter.approved = false;
     if (q) {
       const rx = new RegExp(escapeRegex(q.trim()), 'i');
       filter.$or = [{ name: rx }, { slug: rx }, { restaurantId: rx }, { 'owner.email': rx }, { 'owner.name': rx }];
@@ -50,7 +51,11 @@ export class RestaurantAdminService {
     const rows = await this.#models.Restaurant.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]);
     const byStatus = Object.fromEntries(RESTAURANT_STATUSES.map((s) => [s, 0]));
     for (const row of rows) byStatus[row._id] = row.count;
-    return { total: Object.values(byStatus).reduce((a, b) => a + b, 0), byStatus };
+    const [pending, trialExpired] = await Promise.all([
+      this.#models.Restaurant.countDocuments({ approved: false, status: { $in: ['active', 'suspended'] } }),
+      this.#models.Restaurant.countDocuments({ approved: false, status: 'active', trialEndsAt: { $lte: new Date(this.#now()) } }),
+    ]);
+    return { total: Object.values(byStatus).reduce((a, b) => a + b, 0), byStatus, approval: { pending, trialExpired } };
   }
 
   async get(restaurantId) {
@@ -158,6 +163,36 @@ export class RestaurantAdminService {
       restaurantId,
       metadata: { from: record.status, to: rule.to },
     });
+    return toPublicRecord(updated);
+  }
+
+  /** Permanent activation of a self-registered restaurant. */
+  async approve(restaurantId, { actor, ip } = {}) {
+    const record = await this.#find(restaurantId);
+    if (record.status === 'provisioning' || record.status === 'failed') {
+      throw Errors.conflict('Finish provisioning before approving', { code: 'INVALID_STATE' });
+    }
+    const updated = await this.#models.Restaurant.findOneAndUpdate(
+      { restaurantId },
+      { $set: { approved: true, approvedAt: new Date(this.#now()) }, $unset: { trialEndsAt: 1 } },
+      { new: true },
+    ).lean();
+    this.#tenantManager.invalidate(restaurantId);
+    await this.#audit.log({ actor, ip, action: 'restaurant.approved', resource: 'restaurant', resourceId: restaurantId, restaurantId });
+    return toPublicRecord(updated);
+  }
+
+  /** Adds days to the trial (from now if it already ended). */
+  async extendTrial(restaurantId, days, { actor, ip } = {}) {
+    const record = await this.#find(restaurantId);
+    if (record.approved !== false) {
+      throw Errors.conflict('This restaurant is already approved', { code: 'INVALID_STATE' });
+    }
+    const from = Math.max(this.#now(), record.trialEndsAt ? new Date(record.trialEndsAt).getTime() : 0);
+    const trialEndsAt = new Date(from + days * 24 * 60 * 60 * 1000);
+    const updated = await this.#models.Restaurant.findOneAndUpdate({ restaurantId }, { $set: { trialEndsAt } }, { new: true }).lean();
+    this.#tenantManager.invalidate(restaurantId);
+    await this.#audit.log({ actor, ip, action: 'restaurant.trial_extended', resource: 'restaurant', resourceId: restaurantId, restaurantId, metadata: { days, trialEndsAt } });
     return toPublicRecord(updated);
   }
 

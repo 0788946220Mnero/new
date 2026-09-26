@@ -16,6 +16,7 @@ import { SessionService } from '../../src/restaurantAuth/sessions.service.js';
 import { createMemoryStorage } from '../../src/media/imageStorage.js';
 import { MediaService } from '../../src/media/media.service.js';
 import { MenuService } from '../../src/menu/menu.service.js';
+import { SignupService } from '../../src/signup/signup.service.js';
 import { PublicMenuService } from '../../src/publicMenu/publicMenu.service.js';
 import { SettingsService } from '../../src/settings/settings.service.js';
 import { UsersService } from '../../src/users/users.service.js';
@@ -30,7 +31,7 @@ import { silentLogger } from '../helpers.js';
  *  - otherwise an in-memory MongoDB (downloaded once by mongodb-memory-server).
  * Everything is created under a random registry name and dropped afterwards.
  */
-export async function startHarness() {
+export async function startHarness({ mfaRequired = true, signupEnabled = true } = {}) {
   let uri = process.env.TEST_MONGODB_URI;
   let memoryServer;
   if (!uri) {
@@ -45,13 +46,6 @@ export async function startHarness() {
   const registry = new RegistryService({ models: createRegistryModels(primary, registryDbName) });
   await registry.ensureIndexes();
 
-  const tenantManager = new TenantDatabaseManager({
-    registry,
-    clusters,
-    registryDbName,
-    logger: silentLogger,
-  });
-
   const clock = {
     t: Date.now(),
     now() {
@@ -61,6 +55,14 @@ export async function startHarness() {
       this.t += ms;
     },
   };
+
+  const tenantManager = new TenantDatabaseManager({
+    registry,
+    clusters,
+    registryDbName,
+    logger: silentLogger,
+    now: () => clock.now(),
+  });
 
   const platformSecret = randomBytes(32).toString('base64url');
   const audit = new PlatformAuditService({ model: registry.models.PlatformAuditLog, logger: silentLogger });
@@ -84,6 +86,7 @@ export async function startHarness() {
       tokens: createPlatformTokens({ secret: platformSecret }),
       encryptor: createEncryptor(randomBytes(32).toString('base64')),
       audit,
+      mfaRequired,
       now: () => clock.now(),
     }),
     provisioning: new RestaurantProvisioningService({
@@ -103,6 +106,7 @@ export async function startHarness() {
       tenantManager,
       audit,
       sessions,
+      now: () => clock.now(),
     }),
   };
 
@@ -130,7 +134,14 @@ export async function startHarness() {
     settingsService: new SettingsService({ storage, logger: silentLogger, onChange }),
     media,
     publicMenu,
+    signupRateLimit: 10_000,
   };
+  restaurant.signupService = new SignupService({
+    provisioning: platform.provisioning,
+    authService: restaurant.authService,
+    trialDays: 7,
+    enabled: signupEnabled,
+  });
 
   const app = createApp({
     config: { TRUST_PROXY: 0, CORS_ORIGINS: [] },

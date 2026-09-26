@@ -13,6 +13,7 @@ import { stripTenantOverrides } from './middleware/tenant.js';
 import { platformRouter } from './platform/platform.routes.js';
 import { publicMenuRouter } from './publicMenu/publicMenu.routes.js';
 import { restaurantAuthRouter } from './restaurantAuth/auth.routes.js';
+import { signupRouter } from './signup/signup.routes.js';
 import { healthRouter } from './routes/health.routes.js';
 import { usersRouter } from './users/users.routes.js';
 
@@ -83,6 +84,9 @@ export function createApp({ config, logger, clusters, platform, restaurant }) {
       app.use('/api/products', m.products);
       app.use('/api/categories', m.categories);
       app.use('/api/settings', m.settings);
+    }
+    if (restaurant.signupService) {
+      app.use('/api/signup', signupRouter(restaurant));
     }
     if (restaurant.publicMenu) {
       app.use('/api/public', publicMenuRouter({ publicMenu: restaurant.publicMenu }));

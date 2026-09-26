@@ -13,6 +13,7 @@ import { SessionService } from './restaurantAuth/sessions.service.js';
 import { createCloudinaryStorage, createLocalStorage, disabledStorage } from './media/imageStorage.js';
 import { MediaService } from './media/media.service.js';
 import { MenuService } from './menu/menu.service.js';
+import { SignupService } from './signup/signup.service.js';
 import { PublicMenuService } from './publicMenu/publicMenu.service.js';
 import { SettingsService } from './settings/settings.service.js';
 import { UsersService } from './users/users.service.js';
@@ -64,6 +65,7 @@ async function main() {
       tokens: createPlatformTokens({ secret: config.PLATFORM_JWT_SECRET }),
       encryptor: createEncryptor(config.MFA_ENCRYPTION_KEY),
       audit,
+      mfaRequired: config.platformMfaRequired,
     }),
     provisioning: new RestaurantProvisioningService({
       registryModels: registry.models,
@@ -94,22 +96,32 @@ async function main() {
         ? createLocalStorage({ dir: config.LOCAL_MEDIA_DIR })
         : disabledStorage;
   logger.info({ storage: storage.kind }, 'Image storage');
+  if (!config.platformMfaRequired) {
+    logger.warn('Super Admin MFA is NOT required (PLATFORM_MFA_REQUIRED=false)');
+  }
 
   const publicMenu = new PublicMenuService({ tenantManager, storage });
   const onChange = (restaurantId) => publicMenu.invalidate(restaurantId);
   const media = new MediaService({ storage, registryModels: registry.models, logger, onChange });
 
   const restaurantTokens = createRestaurantTokens({ secret: config.JWT_ACCESS_SECRET });
+  const restaurantAuthService = new RestaurantAuthService({
+    registryModels: registry.models,
+    tenantManager,
+    sessions,
+    tokens: restaurantTokens,
+    logger,
+  });
   const restaurant = {
     tokens: restaurantTokens,
     tenantManager,
     cookieSecure: config.cookieSecure,
-    authService: new RestaurantAuthService({
-      registryModels: registry.models,
-      tenantManager,
-      sessions,
-      tokens: restaurantTokens,
-      logger,
+    authService: restaurantAuthService,
+    signupService: new SignupService({
+      provisioning: platform.provisioning,
+      authService: restaurantAuthService,
+      trialDays: config.TRIAL_DAYS,
+      enabled: config.selfSignupEnabled,
     }),
     usersService: new UsersService({
       registryModels: registry.models,

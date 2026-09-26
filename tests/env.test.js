@@ -80,6 +80,12 @@ describe('loadEnv', () => {
     assert.throws(() => loadEnv({ ...prod, COOKIE_SECURE: 'false' }), /COOKIE_SECURE/);
   });
 
+  test('Super Admin MFA is required unless explicitly turned off', () => {
+    assert.equal(loadEnv(valid).platformMfaRequired, true);
+    assert.equal(loadEnv({ ...valid, PLATFORM_MFA_REQUIRED: 'false' }).platformMfaRequired, false);
+    assert.throws(() => loadEnv({ ...valid, PLATFORM_MFA_REQUIRED: 'no' }), /PLATFORM_MFA_REQUIRED/);
+  });
+
   test('collects extra clusters from MONGODB_URI__<ID>', () => {
     const env = loadEnv({ ...valid, MONGODB_URI__EU2: 'mongodb+srv://x@eu2.example.net' });
     assert.equal(env.MONGODB_CLUSTERS.eu2, 'mongodb+srv://x@eu2.example.net');

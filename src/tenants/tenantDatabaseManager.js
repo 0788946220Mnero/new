@@ -9,6 +9,9 @@ const notFound = () =>
 const unavailable = () =>
   new AppError(403, 'This restaurant is currently unavailable', { code: 'TENANT_UNAVAILABLE' });
 
+const trialExpired = () =>
+  new AppError(403, 'The free trial for this restaurant has ended', { code: 'TRIAL_EXPIRED' });
+
 const routingInvalid = () =>
   new AppError(500, 'Internal server error', { code: 'TENANT_ROUTING_INVALID' });
 
@@ -34,6 +37,7 @@ export class TenantDatabaseManager {
   #routes; // restaurantId -> routing | null
   #slugs; // slug -> restaurantId | null
   #inflight = new Map();
+  #now;
 
   constructor({
     registry,
@@ -53,6 +57,7 @@ export class TenantDatabaseManager {
     this.#registryDbName = registryDbName;
     this.#logger = logger;
     this.#notFoundTtlMs = notFoundTtlMs;
+    this.#now = now;
     this.#routes = new TtlCache({ ttlMs: cacheTtlMs, maxEntries, now });
     this.#slugs = new TtlCache({ ttlMs: cacheTtlMs, maxEntries, now });
   }
@@ -130,6 +135,8 @@ export class TenantDatabaseManager {
       databaseName: raw.databaseName,
       clusterId: raw.clusterId ?? 'primary',
       status: raw.status,
+      approved: raw.approved !== false,
+      trialEndsAt: raw.trialEndsAt ? new Date(raw.trialEndsAt) : null,
     });
     this.#routes.set(routing.restaurantId, routing);
     if (routing.slug) this.#slugs.set(routing.slug, routing.restaurantId);
@@ -140,6 +147,10 @@ export class TenantDatabaseManager {
     if (routing.status !== 'active') {
       if (routing.status === 'suspended' || routing.status === 'archived') throw unavailable();
       throw notFound(); // provisioning / failed are invisible
+    }
+    // Checked on every request (not by a scheduled job), so expiry is exact and can't be missed.
+    if (!routing.approved && (!routing.trialEndsAt || routing.trialEndsAt.getTime() <= this.#now())) {
+      throw trialExpired();
     }
 
     let expected;
@@ -169,6 +180,7 @@ export class TenantDatabaseManager {
       name: routing.name,
       databaseName: routing.databaseName,
       clusterId: routing.clusterId,
+      trialEndsAt: routing.approved ? null : routing.trialEndsAt,
       db,
       models: getTenantModels(db),
     });

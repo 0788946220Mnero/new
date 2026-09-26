@@ -54,7 +54,7 @@ export class RestaurantAuthService {
     if (!pw.success) throw weakPassword(pw.error.issues[0].message);
 
     const tenant = await this.#tenantManager.resolveById(parsed.restaurantId).catch((err) => {
-      if (err.code === 'TENANT_UNAVAILABLE') throw err;
+      if (err.code === 'TENANT_UNAVAILABLE' || err.code === 'TRIAL_EXPIRED') throw err;
       throw invalidSetupToken();
     });
     const { User } = tenant.models;
@@ -90,7 +90,7 @@ export class RestaurantAuthService {
 
     // Suspended/archived restaurants get a clear message; missing/failed ones look like bad credentials.
     const tenant = await this.#tenantManager.resolveById(entry.restaurantId).catch((err) => {
-      if (err.code === 'TENANT_UNAVAILABLE') throw err;
+      if (err.code === 'TENANT_UNAVAILABLE' || err.code === 'TRIAL_EXPIRED') throw err;
       return null;
     });
     if (!tenant) {
@@ -143,7 +143,7 @@ export class RestaurantAuthService {
       tenant = await this.#tenantManager.resolveById(s.restaurantId);
     } catch (err) {
       await this.#sessions.revoke(s.sessionId);
-      throw err.code === 'TENANT_UNAVAILABLE' ? err : sessionExpired();
+      throw err.code === 'TENANT_UNAVAILABLE' || err.code === 'TRIAL_EXPIRED' ? err : sessionExpired();
     }
     const user = await tenant.models.User.findById(s.userId).lean();
     if (!user || user.status !== 'active') {
@@ -187,7 +187,7 @@ export class RestaurantAuthService {
   }
 
   me(tenant, user) {
-    return { user, restaurant: { restaurantId: tenant.restaurantId, name: tenant.name, slug: tenant.slug } };
+    return { user, restaurant: this.#restaurantInfo(tenant) };
   }
 
   async #startSession(tenant, user, { ip, userAgent }) {
@@ -209,7 +209,11 @@ export class RestaurantAuthService {
       }),
       expiresIn: RESTAURANT_ACCESS_TTL_SECONDS,
       user: publicUser(user),
-      restaurant: { restaurantId: tenant.restaurantId, name: tenant.name, slug: tenant.slug },
+      restaurant: this.#restaurantInfo(tenant),
     };
+  }
+
+  #restaurantInfo(tenant) {
+    return { restaurantId: tenant.restaurantId, name: tenant.name, slug: tenant.slug, trialEndsAt: tenant.trialEndsAt ?? null };
   }
 }

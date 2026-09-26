@@ -44,6 +44,12 @@ const restaurantSchema = new Schema(
       phone: { type: String, trim: true, maxlength: 30 },
     },
     ownerUserId: { type: String },
+    // Self-registered restaurants start on a trial (approved=false) until the Super Admin approves them.
+    // Restaurants created by the Super Admin are approved from the start.
+    approved: { type: Boolean, default: true },
+    trialEndsAt: { type: Date },
+    approvedAt: { type: Date },
+    signupSource: { type: String, enum: ['admin', 'self'], default: 'admin' },
     mediaFolder: { type: String, maxlength: 100 },
     notes: { type: String, maxlength: 2000 },
   },
@@ -54,6 +60,7 @@ restaurantSchema.index({ slug: 1 }, { unique: true });
 restaurantSchema.index({ databaseName: 1 }, { unique: true });
 restaurantSchema.index({ status: 1, createdAt: -1 });
 restaurantSchema.index({ 'owner.email': 1 });
+restaurantSchema.index({ approved: 1, status: 1 });
 
 // Login lookup only: email -> which restaurant database holds the user. No secrets here.
 const userDirectorySchema = new Schema(

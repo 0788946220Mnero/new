@@ -60,7 +60,8 @@ export class RestaurantProvisioningService {
   }
 
   /** input is already validated by the route schema. */
-  async create(input, { actor, ip } = {}) {
+  /** trialDays: set for self-registration — the restaurant works for that many days until approved. */
+  async create(input, { actor, ip, trialDays } = {}) {
     const { Restaurant, UserDirectory } = this.#models;
     const ownerEmail = input.owner.email.toLowerCase();
 
@@ -73,11 +74,11 @@ export class RestaurantProvisioningService {
       if (await Restaurant.exists({ slug: explicitSlug })) throw slugTaken();
     }
 
-    const record = await this.#insertRegistryRecord(input, ownerEmail, explicitSlug, actor);
+    const record = await this.#insertRegistryRecord(input, ownerEmail, explicitSlug, actor, trialDays);
     await this.#audit.log({
       actor,
       ip,
-      action: 'restaurant.created',
+      action: trialDays ? 'restaurant.self_registered' : 'restaurant.created',
       resource: 'restaurant',
       resourceId: record.restaurantId,
       restaurantId: record.restaurantId,
@@ -154,7 +155,7 @@ export class RestaurantProvisioningService {
 
   // ---------------------------------------------------------------------------
 
-  async #insertRegistryRecord(input, ownerEmail, explicitSlug, actor) {
+  async #insertRegistryRecord(input, ownerEmail, explicitSlug, actor, trialDays) {
     const { Restaurant, PlatformSetting } = this.#models;
     const defaults = (await PlatformSetting.findOne({ key: 'defaultLimits' }).lean())?.value ?? {};
 
@@ -180,6 +181,9 @@ export class RestaurantProvisioningService {
           owner: { name: input.owner.name, email: ownerEmail, phone: input.owner.phone },
           limits: { ...defaults, ...input.limits },
           notes: input.notes,
+          ...(trialDays
+            ? { approved: false, signupSource: 'self', trialEndsAt: new Date(this.#now() + trialDays * 24 * 60 * 60 * 1000) }
+            : { approved: true, signupSource: 'admin' }),
         });
         this.#tenantManager.invalidateSlug(slug);
         this.#logger?.info({ restaurantId, slug, by: actor?.email }, 'Restaurant registered');
@@ -399,6 +403,10 @@ export function toPublicRecord(r) {
     mediaFolder: r.mediaFolder,
     owner: r.owner,
     ownerUserId: r.ownerUserId,
+    approved: r.approved !== false,
+    trialEndsAt: r.approved === false ? r.trialEndsAt ?? null : null,
+    approvedAt: r.approvedAt,
+    signupSource: r.signupSource ?? 'admin',
     contact: r.contact,
     limits: r.limits,
     notes: r.notes,

@@ -8,6 +8,8 @@ const ROUTING_FIELDS = {
   databaseName: 1,
   clusterId: 1,
   status: 1,
+  approved: 1,
+  trialEndsAt: 1,
 };
 
 export class RegistryService {

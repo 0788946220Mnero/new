@@ -57,6 +57,7 @@ const listSchema = z
   .object({
     q: z.string().trim().max(100).optional(),
     status: z.enum(RESTAURANT_STATUSES).optional(),
+    approval: z.enum(['pending']).optional(),
     page: z.coerce.number().int().min(1).max(10_000).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(25),
   })
@@ -167,6 +168,15 @@ export function platformRouter({ authService, provisioning, restaurantAdmin, aud
   router.post('/restaurants/:restaurantId/:action(suspend|activate|archive)', asyncHandler(async (req, res) => {
     const id = restaurantIdParam(req);
     res.json({ success: true, data: await restaurantAdmin.changeStatus(id, req.params.action, ctx(req)) });
+  }));
+
+  router.post('/restaurants/:restaurantId/approve', asyncHandler(async (req, res) => {
+    res.json({ success: true, data: await restaurantAdmin.approve(restaurantIdParam(req), ctx(req)) });
+  }));
+
+  router.post('/restaurants/:restaurantId/extend-trial', asyncHandler(async (req, res) => {
+    const { days } = z.object({ days: z.number().int().min(1).max(90) }).strict().parse(req.body);
+    res.json({ success: true, data: await restaurantAdmin.extendTrial(restaurantIdParam(req), days, ctx(req)) });
   }));
 
   router.post('/restaurants/:restaurantId/retry-provisioning', asyncHandler(async (req, res) => {
